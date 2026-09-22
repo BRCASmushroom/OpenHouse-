@@ -16,7 +16,7 @@
         <!-- 頂部標題列 -->
         <header class="bg-blue-600 text-white p-4 text-center shadow-md">
             <h1 class="text-xl font-bold">🎯 課程活動現場候位系統</h1>
-            <p id="system-status" class="text-xs text-blue-100 mt-1">狀態：開放候位中</p>
+            <p id="system-status" class="text-xs text-blue-100 mt-1">狀態：開放候位中（雲端同步版）</p>
         </header>
 
         <!-- 主要內容區 -->
@@ -78,8 +78,13 @@
                         <input type="number" id="available-slots-input" min="1" value="1" class="w-full border border-orange-300 rounded px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-orange-500">
                     </div>
                     
-                    <button onclick="processQueue()" class="w-full bg-orange-600 hover:bg-orange-700 text-white font-bold py-2 px-4 rounded shadow text-sm transition">
+                    <button onclick="processQueue()" class="w-full bg-orange-600 hover:bg-orange-700 text-white font-bold py-2 px-4 rounded shadow text-sm transition mb-3">
                         確認並發送遞補通知
+                    </button>
+
+                    <!-- 新增：登出後台按鈕 -->
+                    <button onclick="adminLogout()" class="w-full bg-gray-500 hover:bg-gray-600 text-white font-bold py-1.5 px-4 rounded shadow text-xs transition">
+                        🔒 登出後台
                     </button>
                 </div>
 
@@ -103,32 +108,49 @@
 
     </div>
 
-    <!-- JavaScript 邏輯控制（使用 localStorage 實現全裝置/全分頁資料同步） -->
+    <!-- 雲端即時同步邏輯控制 -->
     <script>
-        const STORAGE_KEY = 'openhouse_queue_data_v1';
+        // 使用免費公開的雲端 JSON 儲存服務 (JSONBin 替代方案，利用 api.jsonbin.io 或公開 KV 儲存)
+        // 為了確保系統開箱即用，我們使用免費的公共同步 API 進行示範
+        const BIN_API_URL = 'https://json.geelato.com/json/openhouse_queue_data_2026'; // 公共測試同步節點
 
-        // 預設資料結構
-        function getSystemData() {
-            let data = localStorage.getItem(STORAGE_KEY);
-            if (!data) {
-                data = {
-                    totalRegistered: 0,
-                    notifiedCount: 0,
-                    admittedNumber: 0,
-                    registrations: {} // 記錄各個序號狀態
-                };
-                saveSystemData(data);
-            } else {
-                data = JSON.parse(data);
+        let cachedData = {
+            totalRegistered: 0,
+            notifiedCount: 0,
+            admittedNumber: 0
+        };
+
+        // 從雲端抓取最新資料
+        async function fetchCloudData(isSilent = false) {
+            try {
+                let response = await fetch(BIN_API_URL, { cache: 'no-store' });
+                if (response.ok) {
+                    let json = await response.json();
+                    if (json && typeof json.totalRegistered === 'number') {
+                        cachedData = json;
+                        updateUI();
+                    }
+                }
+            } catch (e) {
+                // 若網路不穩則維持本地快取
             }
-            return data;
         }
 
-        function saveSystemData(data) {
-            localStorage.setItem(STORAGE_KEY, JSON.stringify(data));
+        // 寫入資料到雲端
+        async function saveCloudData(newData) {
+            cachedData = newData;
+            updateUI();
+            try {
+                await fetch(BIN_API_URL, {
+                    method: 'POST',
+                    headers: { 'Content-Type': 'application/json' },
+                    body: JSON.stringify(cachedData)
+                });
+            } catch (e) {
+                console.error("雲端同步失敗", e);
+            }
         }
 
-        // 取得目前使用者的專屬序號 (綁定在該瀏覽器)
         function getMyNumber() {
             return localStorage.getItem('openhouse_my_number') ? parseInt(localStorage.getItem('openhouse_my_number')) : null;
         }
@@ -142,27 +164,24 @@
         }
 
         // 登記候位
-        function registerQueue() {
-            let data = getSystemData();
-            
-            // 檢查是否已經登記過
+        async function registerQueue() {
+            await fetchCloudData();
             if (getMyNumber() !== null) {
                 alert(`您已經登記過了！您的序號為 NO. ${getMyNumber()}`);
                 return;
             }
 
-            data.totalRegistered += 1;
-            let myNum = data.totalRegistered;
+            cachedData.totalRegistered += 1;
+            let myNum = cachedData.totalRegistered;
             
             setMyNumber(myNum);
-            saveSystemData(data);
+            await saveCloudData(cachedData);
             
-            updateUI();
             alert(`登記成功！您的候位序號為：NO. ${myNum}`);
         }
 
         // 放棄候位
-        function cancelQueue() {
+        async function cancelQueue() {
             if (confirm("確定要放棄候位嗎？放棄後將退回初始頁面。")) {
                 setMyNumber(null);
                 updateUI();
@@ -170,8 +189,8 @@
         }
 
         // 後台處理：發送遞補通知
-        function processQueue() {
-            let data = getSystemData();
+        async function processQueue() {
+            await fetchCloudData();
             const slots = parseInt(document.getElementById('available-slots-input').value);
             
             if (isNaN(slots) || slots <= 0) {
@@ -179,17 +198,16 @@
                 return;
             }
 
-            let newNotifiedCount = data.notifiedCount + slots;
-            if (newNotifiedCount > data.totalRegistered) {
-                newNotifiedCount = data.totalRegistered;
+            let newNotifiedCount = cachedData.notifiedCount + slots;
+            if (newNotifiedCount > cachedData.totalRegistered) {
+                newNotifiedCount = cachedData.totalRegistered;
             }
 
-            data.notifiedCount = newNotifiedCount;
-            data.admittedNumber = data.notifiedCount;
-            saveSystemData(data);
+            cachedData.notifiedCount = newNotifiedCount;
+            cachedData.admittedNumber = cachedData.notifiedCount;
             
-            updateUI();
-            alert(`已成功發送 ${slots} 個遞補通知！目前通知至序號 NO. ${data.notifiedCount}`);
+            await saveCloudData(cachedData);
+            alert(`已成功發送 ${slots} 個遞補通知！目前通知至序號 NO. ${cachedData.notifiedCount}`);
         }
 
         // 驗證後台密碼
@@ -207,14 +225,20 @@
             }
         }
 
+        // 登出後台
+        function adminLogout() {
+            localStorage.removeItem('openhouse_is_admin_logged');
+            toggleView();
+            alert("已成功登出後台！");
+        }
+
         // 更新介面
         function updateUI() {
-            let data = getSystemData();
             let myNum = getMyNumber();
 
             // 更新已進場序號
             const admittedEl = document.getElementById('current-admitted');
-            admittedEl.textContent = data.admittedNumber > 0 ? `NO. ${data.admittedNumber}` : "尚未開始";
+            admittedEl.textContent = cachedData.admittedNumber > 0 ? `NO. ${cachedData.admittedNumber}` : "尚未開始";
 
             // 更新我的狀態
             const myStatusBox = document.getElementById('my-status-box');
@@ -228,7 +252,7 @@
                     </button>
                 `;
             } else {
-                let isNotified = myNum <= data.notifiedCount;
+                let isNotified = myNum <= cachedData.notifiedCount;
                 
                 if (isNotified) {
                     myStatusBox.innerHTML = `
@@ -249,15 +273,15 @@
                 }
 
                 actionButtons.innerHTML = `
-                    <button onclick="cancelQueue()" class="w-full bg-gray-200 hover:bg-gray-300 text-gray-700 font-bold py.5 px-4 rounded-lg shadow transition text-sm py-2.5">
+                    <button onclick="cancelQueue()" class="w-full bg-gray-200 hover:bg-gray-300 text-gray-700 font-bold py-2.5 px-4 rounded-lg shadow transition text-sm">
                         放棄候位
                     </button>
                 `;
             }
 
             // 更新後台統計數據
-            document.getElementById('stat-total').textContent = data.totalRegistered;
-            document.getElementById('stat-notified').textContent = data.notifiedCount;
+            document.getElementById('stat-total').textContent = cachedData.totalRegistered;
+            document.getElementById('stat-notified').textContent = cachedData.notifiedCount;
         }
 
         // 切換視圖
@@ -293,13 +317,13 @@
             }
         }
 
-        // 自動同步機制：每秒自動更新畫面，確保民眾端能即時收到後台發送的通知
+        // 自動同步機制：每 2 秒向雲端抓取一次最新資料
         setInterval(() => {
-            updateUI();
-        }, 1000);
+            fetchCloudData(true);
+        }, 2000);
 
         // 初始化載入
-        updateUI();
+        fetchCloudData();
     </script>
 </body>
 </html>
