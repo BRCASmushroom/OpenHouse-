@@ -149,7 +149,7 @@
             }
         }
 
-        // 登記候位（含防連點與錯誤自動解鎖按鈕機制）
+        // 登記候位（最精簡、保留防連點，絕對不卡死）
         async function registerQueue() {
             if (getMyNumber() !== null) {
                 alert(`您已經登記過了！您的序號為 NO. ${getMyNumber()}`);
@@ -157,27 +157,26 @@
             }
 
             const actionButtons = document.getElementById('action-buttons');
+            // 1. 鎖定按鈕為登記中
             actionButtons.innerHTML = `<button disabled class="w-full bg-gray-400 text-white font-bold py-3 px-4 rounded-lg shadow">登記中，請稍候...</button>`;
 
             try {
+                // 2. 直接發送請求
                 let response = await fetch(`${SCRIPT_URL}?action=register`);
-                if (!response.ok) {
-                    throw new Error("伺服器回應異常");
-                }
-                
                 let result = await response.json();
+
                 if (result && result.success) {
                     setMyNumber(result.myNumber);
                     await fetchCloudData();
                     alert(`登記成功！您的候位序號為：NO. ${result.myNumber}`);
                 } else {
                     alert("登記失敗，請再試一次。");
-                    resetRegisterButton();
+                    updateUI(); // 自動回復按鈕
                 }
             } catch (e) {
                 console.error("登記錯誤：", e);
-                alert("無法連線至後台，請檢查 Google 網址是否正確或權限是否設為「所有人」。");
-                resetRegisterButton();
+                alert("網路異常或後台回應錯誤，請重新整理頁面再試。");
+                updateUI(); // 自動回復按鈕
             }
         }
 
