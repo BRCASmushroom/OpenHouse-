@@ -168,9 +168,20 @@
         }
 
         // 放棄候位
-        function cancelQueue() {
+        async function cancelQueue() {
             if (confirm("確定要放棄候位嗎？放棄後將退回初始畫面。")) {
+                let myNum = getMyNumber();
+                if (myNum !== null) {
+                    try {
+                        // 告知雲端後台該號碼已放棄
+                        await fetch(`${SCRIPT_URL}?action=cancel&num=${myNum}`);
+                    } catch (e) {
+                        console.error("同步放棄狀態失敗", e);
+                    }
+                }
                 setMyNumber(null);
+                await fetchCloudData();
+                alert("已成功放棄候位。");
                 updateUI();
             }
         }
